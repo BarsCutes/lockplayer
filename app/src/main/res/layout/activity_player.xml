@@ -30,16 +30,10 @@
         android:paddingEnd="28dp"
         android:paddingBottom="12dp">
 
-        <TextClock
+        <com.example.lockplayer.DotClockView
             android:id="@+id/clock"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:format12Hour="HH:mm"
-            android:format24Hour="HH:mm"
-            android:gravity="center"
-            android:textColor="#FFFFFF"
-            android:textSize="48sp"
-            android:fontFamily="sans-serif-thin" />
+            android:layout_height="wrap_content" />
 
         <TextClock
             android:id="@+id/date"
@@ -48,8 +42,12 @@
             android:format12Hour="EEEE, d MMMM"
             android:format24Hour="EEEE, d MMMM"
             android:gravity="center"
+            android:layout_marginTop="10dp"
             android:textColor="#B3FFFFFF"
-            android:textSize="14sp" />
+            android:fontFamily="monospace"
+            android:letterSpacing="0.15"
+            android:textAllCaps="true"
+            android:textSize="12sp" />
 
         <ImageView
             android:id="@+id/cover"
