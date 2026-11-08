@@ -49,16 +49,42 @@
             android:textAllCaps="true"
             android:textSize="12sp" />
 
-        <ImageView
-            android:id="@+id/cover"
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_marginTop="20dp"
-            android:layout_weight="1"
-            android:contentDescription="@null"
-            android:elevation="12dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/cover_placeholder" />
+            android:layout_weight="1">
+
+            <ImageView
+                android:id="@+id/cover"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@null"
+                android:elevation="12dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/cover_placeholder" />
+
+            <ScrollView
+                android:id="@+id/lyrics_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fadingEdgeLength="40dp"
+                android:requiresFadingEdge="vertical"
+                android:scrollbars="none"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/lyrics_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:lineSpacingMultiplier="1.25"
+                    android:paddingTop="80dp"
+                    android:paddingBottom="80dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp" />
+            </ScrollView>
+        </FrameLayout>
 
         <TextView
             android:id="@+id/title"
@@ -175,9 +201,22 @@
             android:layout_marginEnd="24dp" />
 
         <TextView
+            android:id="@+id/lyrics_btn"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:letterSpacing="0.2"
+            android:padding="10dp"
+            android:text="ТЕКСТ"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="0dp"
             android:gravity="center"
             android:text="↑ разблокировать   ·   ↓ закрыть"
             android:textColor="#66FFFFFF"

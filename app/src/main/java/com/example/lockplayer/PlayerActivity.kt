@@ -8,6 +8,13 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
 import android.os.SystemClock
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.AbsoluteSizeSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
+import android.graphics.Typeface
+import android.widget.ScrollView
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.RenderEffect
@@ -48,6 +55,11 @@ class PlayerActivity : Activity() {
     private lateinit var audio: AudioManager
     private lateinit var volume: SeekBar
     private var pausedSince = 0L
+    private lateinit var lyricsScroll: ScrollView
+    private lateinit var lyricsText: TextView
+    private var lyricsMode = false
+    private var lyricsIdx = -2
+    private var lyricsDirty = true
 
     // Экран погас — закрываем, чтобы при следующем включении плеер открылся заново
     private val screenOff = object : BroadcastReceiver() {
@@ -72,6 +84,10 @@ class PlayerActivity : Activity() {
         window.navigationBarColor = 0
 
         content = findViewById(R.id.content)
+        lyricsScroll = findViewById(R.id.lyrics_scroll)
+        lyricsText = findViewById(R.id.lyrics_text)
+        findViewById<View>(R.id.lyrics_btn).setOnClickListener { setLyricsMode(!lyricsMode) }
+        lyricsText.setOnClickListener { setLyricsMode(false) }
         AutoLaunch.cancelNotification(this) // убираем мелькнувшее уведомление
         audio = getSystemService(AUDIO_SERVICE) as AudioManager
         volume = findViewById(R.id.volume)
@@ -216,6 +232,13 @@ class PlayerActivity : Activity() {
         val bmp = PlayerState.coverBitmap()
         if (t != shownTitle || bmp !== shownCover) {
             val changed = shownTitle != null && t != shownTitle
+            if (t != shownTitle) {
+                lyricsDirty = true
+                lyricsIdx = -2
+                Lyrics.request(t, md?.getString(MediaMetadata.METADATA_KEY_ARTIST), md?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L) {
+                    lyricsDirty = true
+                }
+            }
             shownTitle = t
             shownCover = bmp
             val newTitle = t ?: getString(R.string.idle_title)
@@ -242,6 +265,7 @@ class PlayerActivity : Activity() {
             seek.progress = if (dur > 0) (pos * 10000 / dur).toInt() else 0
         }
 
+        refreshLyrics(pos)
         if (!volume.isPressed) volume.progress = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
 
         // Автозакрытие: пауза дольше минуты
@@ -254,6 +278,53 @@ class PlayerActivity : Activity() {
         val actions: List<PlaybackState.CustomAction> = c?.playbackState?.customActions ?: emptyList()
         bindAction(btnA, actions.getOrNull(0))
         bindAction(btnB, actions.getOrNull(1))
+    }
+
+    private fun setLyricsMode(on: Boolean) {
+        lyricsMode = on
+        lyricsScroll.visibility = if (on) View.VISIBLE else View.GONE
+        cover.visibility = if (on) View.INVISIBLE else View.VISIBLE
+        lyricsDirty = true
+        if (on) refreshLyrics(PlayerState.positionNow())
+    }
+
+    private fun refreshLyrics(pos: Long) {
+        if (!lyricsMode) return
+        val idx = if (Lyrics.status == Lyrics.Status.FOUND && Lyrics.synced) Lyrics.currentIndex(pos) else -1
+        if (!lyricsDirty && idx == lyricsIdx) return
+        lyricsDirty = false
+        lyricsIdx = idx
+        when (Lyrics.status) {
+            Lyrics.Status.LOADING -> lyricsText.text = "Ищу текст…"
+            Lyrics.Status.NONE, Lyrics.Status.IDLE -> lyricsText.text = "Текст не найден"
+            Lyrics.Status.FOUND -> {
+                val sb = SpannableStringBuilder()
+                var curStart = 0
+                for ((i, l) in Lyrics.lines.withIndex()) {
+                    val start = sb.length
+                    sb.append(l.text.ifEmpty { " " }).append('\n')
+                    val end = sb.length
+                    if (Lyrics.synced) {
+                        if (i == idx) {
+                            curStart = start
+                            sb.setSpan(ForegroundColorSpan(0xFFFFFFFF.toInt()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            sb.setSpan(AbsoluteSizeSpan(26, true), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        } else {
+                            sb.setSpan(ForegroundColorSpan(0x66FFFFFF), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                    }
+                }
+                lyricsText.text = sb
+                if (Lyrics.synced && idx >= 0) {
+                    lyricsText.post {
+                        val lay = lyricsText.layout ?: return@post
+                        val y = lay.getLineTop(lay.getLineForOffset(curStart))
+                        lyricsScroll.smoothScrollTo(0, y - lyricsScroll.height / 3)
+                    }
+                } else lyricsScroll.scrollTo(0, 0)
+            }
+        }
     }
 
     private fun applyTrack(newTitle: String, newArtist: String, bmp: Bitmap?) {
