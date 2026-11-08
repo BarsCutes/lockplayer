@@ -1,20 +1,31 @@
 package com.example.lockplayer
 
 import android.app.Activity
+import android.app.KeyguardManager
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.media.MediaMetadata
 import android.media.session.PlaybackState
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.View
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
+import kotlin.math.abs
 
-/** Большой плеер. Умеет показываться поверх экрана блокировки. */
+/** Большой плеер. Показывается поверх экрана блокировки. Свайп вверх — разблокировать, вниз — закрыть. */
 class PlayerActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
+    private lateinit var content: View
+    private lateinit var backdrop: ImageView
     private lateinit var cover: ImageView
     private lateinit var title: TextView
     private lateinit var artist: TextView
@@ -25,11 +36,14 @@ class PlayerActivity : Activity() {
     private lateinit var btnA: ImageButton
     private lateinit var btnB: ImageButton
     private var dragging = false
+    private var shownCover: Bitmap? = null
+    private var shownTitle: String? = null
+    private lateinit var gestures: GestureDetector
 
     private val ticker = object : Runnable {
         override fun run() {
             refresh()
-            handler.postDelayed(this, 500)
+            handler.postDelayed(this, 100)
         }
     }
 
@@ -38,7 +52,11 @@ class PlayerActivity : Activity() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         setContentView(R.layout.activity_player)
+        window.statusBarColor = 0
+        window.navigationBarColor = 0
 
+        content = findViewById(R.id.content)
+        backdrop = findViewById(R.id.backdrop)
         cover = findViewById(R.id.cover)
         title = findViewById(R.id.title)
         artist = findViewById(R.id.artist)
@@ -49,30 +67,94 @@ class PlayerActivity : Activity() {
         btnA = findViewById(R.id.btn_a)
         btnB = findViewById(R.id.btn_b)
 
-        findViewById<ImageButton>(R.id.btn_prev).setOnClickListener {
-            PlayerState.currentController()?.transportControls?.skipToPrevious()
-        }
-        findViewById<ImageButton>(R.id.btn_next).setOnClickListener {
-            PlayerState.currentController()?.transportControls?.skipToNext()
-        }
+        backdrop.setRenderEffect(RenderEffect.createBlurEffect(70f, 70f, Shader.TileMode.CLAMP))
+        title.isSelected = true // включает бегущую строку
+
+        // Белая тонкая полоска вместо стандартной
+        val white = ColorStateList.valueOf(0xFFFFFFFF.toInt())
+        seek.progressTintList = white
+        seek.thumbTintList = white
+        seek.progressBackgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
+        play.setColorFilter(0xFF12161C.toInt())
+
+        val prev = findViewById<ImageButton>(R.id.btn_prev)
+        val next = findViewById<ImageButton>(R.id.btn_next)
+        prev.setOnClickListener { PlayerState.currentController()?.transportControls?.skipToPrevious() }
+        next.setOnClickListener { PlayerState.currentController()?.transportControls?.skipToNext() }
         play.setOnClickListener {
             val t = PlayerState.currentController()?.transportControls ?: return@setOnClickListener
             if (PlayerState.isPlaying()) t.pause() else t.play()
         }
+        for (b in listOf(prev, next, play, btnA, btnB)) pressEffect(b)
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {}
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val dur = currentDuration()
+                    if (dur > 0) elapsed.text = fmt(dur * p / 10000)
+                }
+            }
+
             override fun onStartTrackingTouch(s: SeekBar?) {
                 dragging = true
             }
 
             override fun onStopTrackingTouch(s: SeekBar?) {
                 dragging = false
-                val c = PlayerState.currentController() ?: return
-                val dur = c.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
-                if (dur > 0) c.transportControls.seekTo(dur * (s?.progress ?: 0) / 1000)
+                val dur = currentDuration()
+                if (dur > 0) {
+                    PlayerState.currentController()?.transportControls
+                        ?.seekTo(dur * (s?.progress ?: 0) / 10000)
+                }
             }
         })
+
+        // Свайпы: вверх — разблокировать, вниз — закрыть
+        gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                if (e1 == null || dragging) return false
+                val dy = e2.y - e1.y
+                val dx = e2.x - e1.x
+                if (abs(dy) < 150 || abs(dy) < abs(dx) * 1.5f) return false
+                if (dy < 0) unlock() else closeAnimated()
+                return true
+            }
+        })
+
+        // Плавное появление
+        content.alpha = 0f
+        content.translationY = 60f
+        content.animate().alpha(1f).translationY(0f).setDuration(350).start()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        gestures.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun unlock() {
+        val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
+            override fun onDismissSucceeded() {
+                finish()
+            }
+        })
+    }
+
+    private fun closeAnimated() {
+        content.animate().alpha(0f).translationY(120f).setDuration(220)
+            .withEndAction { finish() }.start()
+    }
+
+    private fun pressEffect(v: View) {
+        v.setOnTouchListener { view, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> view.animate().scaleX(0.88f).scaleY(0.88f).setDuration(80).start()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+            }
+            false
+        }
     }
 
     override fun onStart() {
@@ -87,35 +169,65 @@ class PlayerActivity : Activity() {
         handler.removeCallbacks(ticker)
     }
 
+    private fun currentDuration(): Long =
+        PlayerState.currentController()?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+
     private fun refresh() {
         val c = PlayerState.currentController()
         val md = c?.metadata
         val t = md?.getString(MediaMetadata.METADATA_KEY_TITLE)
-        title.text = t ?: getString(R.string.idle_title)
-        artist.text = if (t == null) getString(R.string.idle_artist)
-        else (md.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: "")
 
         val bmp = PlayerState.coverBitmap()
-        if (bmp != null) cover.setImageBitmap(bmp) else cover.setImageResource(R.drawable.cover_placeholder)
+        if (t != shownTitle || bmp !== shownCover) {
+            val changed = shownTitle != null && t != shownTitle
+            shownTitle = t
+            shownCover = bmp
+            val newTitle = t ?: getString(R.string.idle_title)
+            val newArtist = if (t == null) getString(R.string.idle_artist)
+            else (md.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: "")
+            if (changed) {
+                // Плавная смена трека: быстро гасим, меняем, показываем
+                content.findViewById<View>(R.id.cover).animate().alpha(0f).setDuration(120).withEndAction {
+                    applyTrack(newTitle, newArtist, bmp)
+                    cover.animate().alpha(1f).setDuration(220).start()
+                }.start()
+            } else {
+                applyTrack(newTitle, newArtist, bmp)
+            }
+        }
 
         play.setImageResource(if (PlayerState.isPlaying()) R.drawable.ic_pause else R.drawable.ic_play)
 
-        val dur = md?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+        val dur = currentDuration()
         val pos = if (dur > 0) PlayerState.positionNow().coerceAtMost(dur) else PlayerState.positionNow()
         durationView.text = if (dur > 0) fmt(dur) else ""
-        elapsed.text = fmt(pos)
-        if (!dragging) seek.progress = if (dur > 0) (pos * 1000 / dur).toInt() else 0
+        if (!dragging) {
+            elapsed.text = fmt(pos)
+            seek.progress = if (dur > 0) (pos * 10000 / dur).toInt() else 0
+        }
 
-        // Дополнительные кнопки самого плеера (лайк, перемешать и т.п.)
         val actions: List<PlaybackState.CustomAction> = c?.playbackState?.customActions ?: emptyList()
         bindAction(btnA, actions.getOrNull(0))
         bindAction(btnB, actions.getOrNull(1))
     }
 
+    private fun applyTrack(newTitle: String, newArtist: String, bmp: Bitmap?) {
+        title.text = newTitle
+        title.isSelected = true
+        artist.text = newArtist
+        if (bmp != null) {
+            cover.setImageBitmap(bmp)
+            backdrop.setImageBitmap(bmp)
+        } else {
+            cover.setImageResource(R.drawable.cover_placeholder)
+            backdrop.setImageDrawable(null)
+        }
+    }
+
     private fun bindAction(btn: ImageButton, a: PlaybackState.CustomAction?) {
         val c = PlayerState.currentController()
         if (a == null || c == null) {
-            btn.visibility = android.view.View.INVISIBLE
+            btn.visibility = View.INVISIBLE
             return
         }
         try {
@@ -123,10 +235,10 @@ class PlayerActivity : Activity() {
             val d = res.getDrawable(a.icon, null)
             d.setTint(0xFFFFFFFF.toInt())
             btn.setImageDrawable(d)
-            btn.visibility = android.view.View.VISIBLE
+            btn.visibility = View.VISIBLE
             btn.setOnClickListener { c.transportControls.sendCustomAction(a, null) }
         } catch (_: Exception) {
-            btn.visibility = android.view.View.INVISIBLE
+            btn.visibility = View.INVISIBLE
         }
     }
 
