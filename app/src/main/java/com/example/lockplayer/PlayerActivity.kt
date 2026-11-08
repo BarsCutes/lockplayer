@@ -2,6 +2,12 @@ package com.example.lockplayer
 
 import android.app.Activity
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
+import android.os.SystemClock
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.RenderEffect
@@ -39,6 +45,16 @@ class PlayerActivity : Activity() {
     private var shownCover: Bitmap? = null
     private var shownTitle: String? = null
     private lateinit var gestures: GestureDetector
+    private lateinit var audio: AudioManager
+    private lateinit var volume: SeekBar
+    private var pausedSince = 0L
+
+    // Экран погас — закрываем, чтобы при следующем включении плеер открылся заново
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            finish()
+        }
+    }
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -56,6 +72,20 @@ class PlayerActivity : Activity() {
         window.navigationBarColor = 0
 
         content = findViewById(R.id.content)
+        AutoLaunch.cancelNotification(this) // убираем мелькнувшее уведомление
+        audio = getSystemService(AUDIO_SERVICE) as AudioManager
+        volume = findViewById(R.id.volume)
+        volume.max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        volume.progressTintList = ColorStateList.valueOf(0xFFFFFFFF.toInt())
+        volume.thumbTintList = ColorStateList.valueOf(0xFFFFFFFF.toInt())
+        volume.progressBackgroundTintList = ColorStateList.valueOf(0x44FFFFFF)
+        volume.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                if (fromUser) audio.setStreamVolume(AudioManager.STREAM_MUSIC, p, 0)
+            }
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
         backdrop = findViewById(R.id.backdrop)
         cover = findViewById(R.id.cover)
         title = findViewById(R.id.title)
@@ -85,6 +115,8 @@ class PlayerActivity : Activity() {
             val t = PlayerState.currentController()?.transportControls ?: return@setOnClickListener
             if (PlayerState.isPlaying()) t.pause() else t.play()
         }
+        // Нажатие на обложку = плей/пауза
+        cover.setOnClickListener { play.performClick() }
         for (b in listOf(prev, next, play, btnA, btnB)) pressEffect(b)
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -161,12 +193,16 @@ class PlayerActivity : Activity() {
         super.onStart()
         PlayerState.onUpdate = { refresh() }
         handler.post(ticker)
+        val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, f, Context.RECEIVER_NOT_EXPORTED)
+        else registerReceiver(screenOff, f)
     }
 
     override fun onStop() {
         super.onStop()
         PlayerState.onUpdate = null
         handler.removeCallbacks(ticker)
+        try { unregisterReceiver(screenOff) } catch (_: Exception) {}
     }
 
     private fun currentDuration(): Long =
@@ -204,6 +240,15 @@ class PlayerActivity : Activity() {
         if (!dragging) {
             elapsed.text = fmt(pos)
             seek.progress = if (dur > 0) (pos * 10000 / dur).toInt() else 0
+        }
+
+        if (!volume.isPressed) volume.progress = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+
+        // Автозакрытие: пауза дольше минуты
+        if (PlayerState.isPlaying()) pausedSince = 0L
+        else {
+            if (pausedSince == 0L) pausedSince = SystemClock.elapsedRealtime()
+            if (AutoLaunch.isAutoClose(this) && SystemClock.elapsedRealtime() - pausedSince > 60_000) finish()
         }
 
         val actions: List<PlaybackState.CustomAction> = c?.playbackState?.customActions ?: emptyList()

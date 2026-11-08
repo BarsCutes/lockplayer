@@ -17,6 +17,7 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var autoBtn: Button
+    private lateinit var closeBtn: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +65,13 @@ class MainActivity : Activity() {
             AutoLaunch.setEnabled(this, !AutoLaunch.isEnabled(this))
             updateAutoText()
         }
+        closeBtn = button("") {
+            AutoLaunch.setAutoClose(this, !AutoLaunch.isAutoClose(this))
+            updateAutoText()
+        }
+        button("Не давать системе убивать приложение") {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
         button("Открыть плеер (проверка)") {
             startActivity(Intent(this, PlayerActivity::class.java))
         }
@@ -78,6 +86,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateAutoText() {
+        closeBtn.text = "Закрывать плеер после минуты паузы: " + if (AutoLaunch.isAutoClose(this)) "ВКЛ" else "ВЫКЛ"
         autoBtn.text = "Автопоказ при включении экрана: " + if (AutoLaunch.isEnabled(this)) "ВКЛ" else "ВЫКЛ"
     }
 

@@ -20,6 +20,17 @@ object AutoLaunch {
         ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE).edit().putBoolean("auto", v).apply()
     }
 
+    fun isAutoClose(ctx: Context): Boolean =
+        ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE).getBoolean("autoclose", true)
+
+    fun setAutoClose(ctx: Context, v: Boolean) {
+        ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE).edit().putBoolean("autoclose", v).apply()
+    }
+
+    fun cancelNotification(ctx: Context) {
+        (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIF_ID)
+    }
+
     fun onScreenOn(ctx: Context) {
         if (!isEnabled(ctx)) return
         val km = ctx.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
@@ -40,6 +51,7 @@ object AutoLaunch {
             .setContentIntent(pi)
             .setFullScreenIntent(pi, true)
             .setAutoCancel(true)
+            .setSilent(true)
             .setTimeoutAfter(4000)
             .build()
         nm.notify(NOTIF_ID, n)
