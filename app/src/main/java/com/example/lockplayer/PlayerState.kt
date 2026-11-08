@@ -67,6 +67,23 @@ object PlayerState {
 
     fun currentController(): MediaController? = controller
 
+    /** Вызывается при любом изменении трека/состояния (для экрана плеера). */
+    var onUpdate: (() -> Unit)? = null
+
+    fun coverBitmap(): Bitmap? = cover
+
+    fun isPlaying(): Boolean = controller?.playbackState?.state == PlaybackState.STATE_PLAYING
+
+    /** Текущая позиция трека в мс с учётом времени, прошедшего с последнего обновления. */
+    fun positionNow(): Long {
+        val st = controller?.playbackState ?: return 0L
+        var p = st.position
+        if (st.state == PlaybackState.STATE_PLAYING) {
+            p += ((SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong()
+        }
+        return p.coerceAtLeast(0L)
+    }
+
     private fun pickController() {
         val m = manager ?: return
         val comp = listenerComponent ?: return
@@ -169,6 +186,7 @@ object PlayerState {
     // ---------- Виджеты ----------
 
     fun pushToWidgets() {
+        onUpdate?.invoke()
         val ctx = appContext ?: return
         val awm = AppWidgetManager.getInstance(ctx)
         val ids = awm.getAppWidgetIds(ComponentName(ctx, PlayerWidgetProvider::class.java))
