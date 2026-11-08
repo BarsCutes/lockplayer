@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lock Player</string>
+    <string name="widget_label">Плеер</string>
+    <string name="widget_description">Большой плеер с обложкой и кнопками</string>
+    <string name="idle_title">Ничего не играет</string>
+    <string name="idle_artist">Включи музыку в Яндекс Музыке</string>
+</resources>
