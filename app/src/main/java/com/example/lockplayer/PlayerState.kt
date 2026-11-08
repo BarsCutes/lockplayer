@@ -111,20 +111,31 @@ object PlayerState {
 
     // ---------- Обложка ----------
 
+    private var lastRaw: Bitmap? = null
+    private var coverTitle: String? = null
+    private var loadingUri: String? = null
+    private var failedAt = 0L
+
     private fun loadCover(md: MediaMetadata?) {
-        if (md == null) {
-            cover = null
-            coverKey = null
-            return
-        }
+        // Временно пропал список метаданных — оставляем то, что было, чтобы обложка не мигала
+        if (md == null) return
+        val title = md.getString(MediaMetadata.METADATA_KEY_TITLE)
+        val titleChanged = title != coverTitle
+        coverTitle = title
+
         val bmp = md.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
         if (bmp != null) {
-            val key = "bmp:" + md.getString(MediaMetadata.METADATA_KEY_MEDIA_ID) +
-                md.getString(MediaMetadata.METADATA_KEY_TITLE)
-            if (key != coverKey) {
-                coverKey = key
+            val prev = lastRaw
+            // Сравниваем содержимое, а не название: плеер часто сначала присылает новое название
+            // со старой картинкой, а настоящую обложку — следующим обновлением.
+            val same = prev != null && prev.width == bmp.width && prev.height == bmp.height &&
+                (prev === bmp || prev.sameAs(bmp))
+            if (!same) {
+                lastRaw = bmp
+                coverKey = "bmp"
+                loadingUri = null
                 cover = rounded(bmp)
             }
             return
@@ -133,13 +144,24 @@ object PlayerState {
             ?: md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
             ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
         if (uri == null) {
-            cover = null
-            coverKey = null
+            // Картинки в этом обновлении нет: сбрасываем только если сменилась песня
+            if (titleChanged) {
+                cover = null
+                coverKey = null
+                lastRaw = null
+                loadingUri = null
+            }
             return
         }
-        if (uri == coverKey) return
+        if (uri == coverKey) {
+            if (cover != null) return                    // уже загружена
+            if (loadingUri == uri) return                // качается
+            if (SystemClock.elapsedRealtime() - failedAt < 5000) return // недавно не вышло
+        }
         coverKey = uri
-        cover = null
+        loadingUri = uri
+        lastRaw = null
+        if (titleChanged) cover = null
         val ctx = appContext ?: return
         thread {
             val loaded = try {
@@ -153,10 +175,15 @@ object PlayerState {
                 null
             }
             main.post {
+                if (loadingUri == uri) loadingUri = null
                 // трек мог смениться, пока качалось
-                if (coverKey == uri && loaded != null) {
-                    cover = rounded(loaded)
-                    pushToWidgets()
+                if (coverKey == uri) {
+                    if (loaded != null) {
+                        cover = rounded(loaded)
+                        pushToWidgets()
+                    } else {
+                        failedAt = SystemClock.elapsedRealtime()
+                    }
                 }
             }
         }

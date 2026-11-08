@@ -244,14 +244,12 @@ class PlayerActivity : Activity() {
             val newTitle = t ?: getString(R.string.idle_title)
             val newArtist = if (t == null) getString(R.string.idle_artist)
             else (md.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: "")
+            applyTrack(newTitle, newArtist, bmp)
             if (changed) {
-                // Плавная смена трека: быстро гасим, меняем, показываем
-                content.findViewById<View>(R.id.cover).animate().alpha(0f).setDuration(120).withEndAction {
-                    applyTrack(newTitle, newArtist, bmp)
-                    cover.animate().alpha(1f).setDuration(220).start()
-                }.start()
-            } else {
-                applyTrack(newTitle, newArtist, bmp)
+                // Плавное проявление новой обложки (без отложенных действий, чтобы не зависала невидимой)
+                cover.animate().cancel()
+                cover.alpha = 0.2f
+                cover.animate().alpha(1f).setDuration(250).start()
             }
         }
 
