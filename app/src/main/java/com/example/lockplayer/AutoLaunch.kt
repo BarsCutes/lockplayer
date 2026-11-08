@@ -37,9 +37,10 @@ object AutoLaunch {
         if (!km.isKeyguardLocked || !PlayerState.isPlaying()) return
 
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Плеер на экране блокировки", NotificationManager.IMPORTANCE_HIGH)
-        )
+        val ch = NotificationChannel(CHANNEL, "Плеер на экране блокировки", NotificationManager.IMPORTANCE_HIGH)
+        ch.setSound(null, null)
+        ch.enableVibration(false)
+        nm.createNotificationChannel(ch)
         val pi = PendingIntent.getActivity(
             ctx, 0,
             Intent(ctx, PlayerActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -51,7 +52,6 @@ object AutoLaunch {
             .setContentIntent(pi)
             .setFullScreenIntent(pi, true)
             .setAutoCancel(true)
-            .setSilent(true)
             .setTimeoutAfter(4000)
             .build()
         nm.notify(NOTIF_ID, n)
