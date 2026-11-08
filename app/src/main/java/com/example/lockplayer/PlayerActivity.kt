@@ -56,7 +56,8 @@ class PlayerActivity : Activity() {
     private lateinit var volume: SeekBar
     private var pausedSince = 0L
     private lateinit var lyricsScroll: ScrollView
-    private lateinit var lyricsText: TextView
+    private lateinit var lyricsList: android.widget.LinearLayout
+    private var lyricLines: List<TextView> = emptyList()
     private var lyricsMode = false
     private var lyricsIdx = -2
     private var lyricsDirty = true
@@ -80,14 +81,21 @@ class PlayerActivity : Activity() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         setContentView(R.layout.activity_player)
+        // Рисуем под статус-баром и нижней панелью, чтобы фон тянулся на весь экран
+        window.setDecorFitsSystemWindows(false)
         window.statusBarColor = 0
         window.navigationBarColor = 0
+        window.isNavigationBarContrastEnforced = false
+        window.isStatusBarContrastEnforced = false
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
 
         content = findViewById(R.id.content)
         lyricsScroll = findViewById(R.id.lyrics_scroll)
-        lyricsText = findViewById(R.id.lyrics_text)
+        lyricsList = findViewById(R.id.lyrics_list)
         findViewById<View>(R.id.lyrics_btn).setOnClickListener { setLyricsMode(!lyricsMode) }
-        lyricsText.setOnClickListener { setLyricsMode(false) }
+        lyricsList.setOnClickListener { setLyricsMode(false) }
         AutoLaunch.cancelNotification(this) // убираем мелькнувшее уведомление
         audio = getSystemService(AUDIO_SERVICE) as AudioManager
         volume = findViewById(R.id.volume)
@@ -286,41 +294,79 @@ class PlayerActivity : Activity() {
         if (on) refreshLyrics(PlayerState.positionNow())
     }
 
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
     private fun refreshLyrics(pos: Long) {
         if (!lyricsMode) return
         val idx = if (Lyrics.status == Lyrics.Status.FOUND && Lyrics.synced) Lyrics.currentIndex(pos) else -1
-        if (!lyricsDirty && idx == lyricsIdx) return
-        lyricsDirty = false
-        lyricsIdx = idx
-        when (Lyrics.status) {
-            Lyrics.Status.LOADING -> lyricsText.text = "Ищу текст…"
-            Lyrics.Status.NONE, Lyrics.Status.IDLE -> lyricsText.text = "Текст не найден"
-            Lyrics.Status.FOUND -> {
-                val sb = SpannableStringBuilder()
-                var curStart = 0
-                for ((i, l) in Lyrics.lines.withIndex()) {
-                    val start = sb.length
-                    sb.append(l.text.ifEmpty { " " }).append('\n')
-                    val end = sb.length
-                    if (Lyrics.synced) {
-                        if (i == idx) {
-                            curStart = start
-                            sb.setSpan(ForegroundColorSpan(0xFFFFFFFF.toInt()), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            sb.setSpan(AbsoluteSizeSpan(26, true), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        } else {
-                            sb.setSpan(ForegroundColorSpan(0x66FFFFFF), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        }
+
+        if (lyricsDirty) {
+            lyricsDirty = false
+            lyricsIdx = idx
+            rebuildLyrics()
+            highlight(idx, animate = false)
+            return
+        }
+        if (idx != lyricsIdx) {
+            lyricsIdx = idx
+            highlight(idx, animate = true)
+        }
+    }
+
+    private fun rebuildLyrics() {
+        lyricsList.removeAllViews()
+        val texts: List<String> = when (Lyrics.status) {
+            Lyrics.Status.LOADING -> listOf("Ищу текст…")
+            Lyrics.Status.FOUND -> Lyrics.lines.map { it.text.ifEmpty { " " } }
+            else -> listOf("Текст не найден")
+        }
+        lyricLines = texts.map { line ->
+            TextView(this).apply {
+                text = line
+                textSize = 24f
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(7), 0, dp(7))
+                alpha = 0.35f
+                scaleX = 0.88f
+                scaleY = 0.88f
+            }.also { lyricsList.addView(it) }
+        }
+        lyricsScroll.scrollTo(0, 0)
+    }
+
+    /** Плавно подсвечивает текущую строку: размер и яркость меняются по дистанции от неё. */
+    private fun highlight(idx: Int, animate: Boolean) {
+        val synced = Lyrics.status == Lyrics.Status.FOUND && Lyrics.synced
+        for ((i, v) in lyricLines.withIndex()) {
+            val (a, sc) = when {
+                Lyrics.status != Lyrics.Status.FOUND || !synced -> 0.95f to 1f
+                idx < 0 -> 0.5f to 0.9f
+                i == idx -> 1f to 1f
+                else -> when (kotlin.math.abs(i - idx)) {
+                    1 -> 0.55f to 0.9f
+                    2 -> 0.4f to 0.88f
+                    else -> 0.28f to 0.86f
+                } 
+            }
+            if (animate) {
+                v.animate().alpha(a).scaleX(sc).scaleY(sc).setDuration(350)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            } else {
+                v.alpha = a; v.scaleX = sc; v.scaleY = sc
+            }
+        }
+        if (synced && idx in lyricLines.indices) {
+            lyricsList.post {
+                val v = lyricLines[idx]
+                val target = (v.top + v.height / 2 - lyricsScroll.height / 3).coerceAtLeast(0)
+                if (animate) {
+                    android.animation.ObjectAnimator.ofInt(lyricsScroll, "scrollY", lyricsScroll.scrollY, target).apply {
+                        duration = 500
+                        interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+                        start()
                     }
-                }
-                lyricsText.text = sb
-                if (Lyrics.synced && idx >= 0) {
-                    lyricsText.post {
-                        val lay = lyricsText.layout ?: return@post
-                        val y = lay.getLineTop(lay.getLineForOffset(curStart))
-                        lyricsScroll.smoothScrollTo(0, y - lyricsScroll.height / 3)
-                    }
-                } else lyricsScroll.scrollTo(0, 0)
+                } else lyricsScroll.scrollTo(0, target)
             }
         }
     }

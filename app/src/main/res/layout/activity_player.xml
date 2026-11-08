@@ -73,16 +73,13 @@
                 android:scrollbars="none"
                 android:visibility="gone">
 
-                <TextView
-                    android:id="@+id/lyrics_text"
+                <LinearLayout
+                    android:id="@+id/lyrics_list"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center"
-                    android:lineSpacingMultiplier="1.25"
-                    android:paddingTop="80dp"
-                    android:paddingBottom="80dp"
-                    android:textColor="#FFFFFF"
-                    android:textSize="20sp" />
+                    android:orientation="vertical"
+                    android:paddingTop="90dp"
+                    android:paddingBottom="140dp" />
             </ScrollView>
         </FrameLayout>
 
